@@ -1,0 +1,40 @@
+# Data — never commit raw sensor files
+data/raw/
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Model artifacts — binaries too large for git; JSON summaries are committed
+model_artifacts/*.pt
+model_artifacts/*.pth
+model_artifacts/*.joblib
+model_artifacts/*.npz
+model_artifacts/evaluation_plots/
+*.pt
+*.pth
+
+# Processed numpy arrays — large, regenerable from raw data
+data/processed/
+
+# Misc
+src.zip
+
+# OS
+.DS_Store
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/

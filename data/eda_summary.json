@@ -1,0 +1,63 @@
+{
+  "rul_cap": 125,
+  "n_train_engines": 100,
+  "n_test_engines": 100,
+  "max_rul": 125.0,
+  "mean_rul": 86.83,
+  "drop_sensors": [
+    "sensor_1",
+    "sensor_10",
+    "sensor_18",
+    "sensor_19"
+  ],
+  "active_sensors": [
+    "sensor_2",
+    "sensor_3",
+    "sensor_4",
+    "sensor_5",
+    "sensor_6",
+    "sensor_7",
+    "sensor_8",
+    "sensor_9",
+    "sensor_11",
+    "sensor_12",
+    "sensor_13",
+    "sensor_14",
+    "sensor_15",
+    "sensor_16",
+    "sensor_17",
+    "sensor_20",
+    "sensor_21"
+  ],
+  "n_features": 17,
+  "top_sensors": [
+    "sensor_11",
+    "sensor_4",
+    "sensor_12",
+    "sensor_7",
+    "sensor_15",
+    "sensor_21",
+    "sensor_20",
+    "sensor_17"
+  ],
+  "corr_with_rul": {
+    "sensor_11": 0.7752,
+    "sensor_4": 0.7572,
+    "sensor_12": 0.7489,
+    "sensor_7": 0.733,
+    "sensor_15": 0.7209,
+    "sensor_21": 0.7073,
+    "sensor_20": 0.7046,
+    "sensor_17": 0.6808,
+    "sensor_2": 0.6785,
+    "sensor_3": 0.655,
+    "sensor_8": 0.6246,
+    "sensor_13": 0.624,
+    "sensor_9": 0.4622,
+    "sensor_14": 0.3698,
+    "sensor_6": 0.1083,
+    "sensor_5": NaN,
+    "sensor_16": NaN
+  },
+  "op_settings_constant": true
+}

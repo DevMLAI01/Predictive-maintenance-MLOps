@@ -1,0 +1,21 @@
+# Exclude from gcloud builds submit source upload
+.gcloudignore
+.git
+.gitignore
+
+# Large local artifacts (model weights are downloaded from GCS at runtime)
+model_artifacts/
+data/
+
+# Python env and cache
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Local outputs
+*.mar
+outputs/
+logs/

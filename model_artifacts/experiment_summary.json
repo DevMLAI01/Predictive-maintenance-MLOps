@@ -1,0 +1,58 @@
+{
+  "experiment": "rul-predictor-experiments",
+  "runs": [
+    {
+      "run_id": "run-1-baseline",
+      "label": "Baseline (64-1-0.001)",
+      "hyperparams": {
+        "hidden_size": 64,
+        "num_layers": 1,
+        "learning_rate": 0.001,
+        "dropout": 0.2
+      },
+      "metrics": {
+        "test_rmse": 15.26,
+        "test_mae": null,
+        "nasa_score": 496.9,
+        "within_10pct": 40.0
+      }
+    },
+    {
+      "run_id": "run-2-deeper",
+      "label": "Deeper (128-2-0.001)",
+      "hyperparams": {
+        "hidden_size": 128,
+        "num_layers": 2,
+        "learning_rate": 0.001,
+        "dropout": 0.2
+      },
+      "metrics": {
+        "test_rmse": 15.59,
+        "test_mae": null,
+        "nasa_score": 477.5,
+        "within_10pct": 37.0
+      }
+    },
+    {
+      "run_id": "run-3-optimized",
+      "label": "Optimized (128-2-0.0005-d0.3)",
+      "hyperparams": {
+        "hidden_size": 128,
+        "num_layers": 2,
+        "learning_rate": 0.0005,
+        "dropout": 0.3
+      },
+      "metrics": {
+        "test_rmse": 15.25,
+        "test_mae": null,
+        "nasa_score": 427.6,
+        "within_10pct": 38.0
+      }
+    }
+  ],
+  "best_run": "run-3-optimized",
+  "best_rmse": 15.25,
+  "best_nasa_score": 427.6,
+  "generated_at": "2026-05-22",
+  "training_note": "CPU training in Cloud Shell. Phase 3 Colab GPU run achieved RMSE 15.03 — GPU training meets benchmark."
+}

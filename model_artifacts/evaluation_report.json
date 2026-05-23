@@ -1,0 +1,13 @@
+{
+  "rmse": 15.0313,
+  "mae": 11.3572,
+  "nasa_score": 402.86,
+  "within_10_pct": 39.0,
+  "grade": "below_target",
+  "benchmark": {
+    "rmse_good": 15.0,
+    "rmse_excellent": 13.0,
+    "nasa_score_good": 300.0,
+    "nasa_score_excellent": 200.0
+  }
+}

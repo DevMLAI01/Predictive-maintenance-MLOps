@@ -1,0 +1,808 @@
+# PIPELINE DEFINITION
+# Name: rul-predictor-pipeline
+# Description: Predictive maintenance RUL pipeline — NASA CMAPSS FD001
+# Inputs:
+#    batch_size: int [Default: 256.0]
+#    endpoint_display_name: str [Default: 'rul-predictor-endpoint']
+#    epochs: int [Default: 100.0]
+#    gcs_model_uri: str [Default: 'gs://predictive-maintenance-artifacts/models/v1']
+#    gcs_raw_data_uri: str [Default: 'gs://predictive-maintenance-artifacts/data/raw']
+#    machine_type: str [Default: 'n1-standard-2']
+#    rmse_threshold: float [Default: 18.0]
+#    rul_cap: int [Default: 125.0]
+#    vertex_model_resource_name: str [Default: 'projects/groovy-rope-496901-d2/locations/us-central1/models/6890578348376850432']
+#    window_size: int [Default: 30.0]
+components:
+  comp-condition-1:
+    dag:
+      tasks:
+        condition-2:
+          componentRef:
+            name: comp-condition-2
+          dependentTasks:
+          - evaluate-model
+          inputs:
+            parameters:
+              pipelinechannel--endpoint_display_name:
+                componentInputParameter: pipelinechannel--endpoint_display_name
+              pipelinechannel--evaluate-model-passes_threshold:
+                taskOutputParameter:
+                  outputParameterKey: passes_threshold
+                  producerTask: evaluate-model
+              pipelinechannel--machine_type:
+                componentInputParameter: pipelinechannel--machine_type
+              pipelinechannel--validate-data-is_valid:
+                componentInputParameter: pipelinechannel--validate-data-is_valid
+              pipelinechannel--vertex_model_resource_name:
+                componentInputParameter: pipelinechannel--vertex_model_resource_name
+          taskInfo:
+            name: deploy-if-good
+          triggerPolicy:
+            condition: inputs.parameter_values['pipelinechannel--evaluate-model-passes_threshold']
+              == true
+        engineer-features:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-engineer-features
+          inputs:
+            parameters:
+              gcs_data_uri:
+                componentInputParameter: pipelinechannel--gcs_raw_data_uri
+              rul_cap:
+                componentInputParameter: pipelinechannel--rul_cap
+              window_size:
+                componentInputParameter: pipelinechannel--window_size
+          taskInfo:
+            name: Feature Engineering
+        evaluate-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-evaluate-model
+          dependentTasks:
+          - train-model
+          inputs:
+            artifacts:
+              model_artifact:
+                taskOutputArtifact:
+                  outputArtifactKey: model_artifact
+                  producerTask: train-model
+            parameters:
+              rmse_threshold:
+                componentInputParameter: pipelinechannel--rmse_threshold
+              test_data_uri:
+                componentInputParameter: pipelinechannel--gcs_raw_data_uri
+          taskInfo:
+            name: Evaluate Model
+        train-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-train-model
+          dependentTasks:
+          - engineer-features
+          inputs:
+            artifacts:
+              processed_data:
+                taskOutputArtifact:
+                  outputArtifactKey: processed_data
+                  producerTask: engineer-features
+            parameters:
+              batch_size:
+                componentInputParameter: pipelinechannel--batch_size
+              epochs:
+                componentInputParameter: pipelinechannel--epochs
+              gcs_model_uri:
+                componentInputParameter: pipelinechannel--gcs_model_uri
+          taskInfo:
+            name: Train LSTM Model
+    inputDefinitions:
+      parameters:
+        pipelinechannel--batch_size:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--endpoint_display_name:
+          parameterType: STRING
+        pipelinechannel--epochs:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--gcs_model_uri:
+          parameterType: STRING
+        pipelinechannel--gcs_raw_data_uri:
+          parameterType: STRING
+        pipelinechannel--machine_type:
+          parameterType: STRING
+        pipelinechannel--rmse_threshold:
+          parameterType: NUMBER_DOUBLE
+        pipelinechannel--rul_cap:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--validate-data-is_valid:
+          parameterType: BOOLEAN
+        pipelinechannel--vertex_model_resource_name:
+          parameterType: STRING
+        pipelinechannel--window_size:
+          parameterType: NUMBER_INTEGER
+  comp-condition-2:
+    dag:
+      tasks:
+        deploy-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-deploy-model
+          inputs:
+            parameters:
+              endpoint_display_name:
+                componentInputParameter: pipelinechannel--endpoint_display_name
+              machine_type:
+                componentInputParameter: pipelinechannel--machine_type
+              model_resource_name:
+                componentInputParameter: pipelinechannel--vertex_model_resource_name
+          taskInfo:
+            name: Deploy to Vertex AI Endpoint
+    inputDefinitions:
+      parameters:
+        pipelinechannel--endpoint_display_name:
+          parameterType: STRING
+        pipelinechannel--evaluate-model-passes_threshold:
+          parameterType: BOOLEAN
+        pipelinechannel--machine_type:
+          parameterType: STRING
+        pipelinechannel--validate-data-is_valid:
+          parameterType: BOOLEAN
+        pipelinechannel--vertex_model_resource_name:
+          parameterType: STRING
+  comp-deploy-model:
+    executorLabel: exec-deploy-model
+    inputDefinitions:
+      parameters:
+        endpoint_display_name:
+          parameterType: STRING
+        machine_type:
+          parameterType: STRING
+        model_resource_name:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        deployed_model_id:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        endpoint_uri:
+          parameterType: STRING
+  comp-engineer-features:
+    executorLabel: exec-engineer-features
+    inputDefinitions:
+      parameters:
+        gcs_data_uri:
+          parameterType: STRING
+        rul_cap:
+          parameterType: NUMBER_INTEGER
+        window_size:
+          parameterType: NUMBER_INTEGER
+    outputDefinitions:
+      artifacts:
+        processed_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        n_features:
+          parameterType: NUMBER_INTEGER
+        n_train_samples:
+          parameterType: NUMBER_INTEGER
+  comp-evaluate-model:
+    executorLabel: exec-evaluate-model
+    inputDefinitions:
+      artifacts:
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        rmse_threshold:
+          parameterType: NUMBER_DOUBLE
+        test_data_uri:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        evaluation_report:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        passes_threshold:
+          parameterType: BOOLEAN
+        test_rmse:
+          parameterType: NUMBER_DOUBLE
+  comp-train-model:
+    executorLabel: exec-train-model
+    inputDefinitions:
+      artifacts:
+        processed_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        batch_size:
+          parameterType: NUMBER_INTEGER
+        epochs:
+          parameterType: NUMBER_INTEGER
+        gcs_model_uri:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        nasa_score:
+          parameterType: NUMBER_DOUBLE
+        val_rmse:
+          parameterType: NUMBER_DOUBLE
+  comp-validate-data:
+    executorLabel: exec-validate-data
+    inputDefinitions:
+      parameters:
+        gcs_data_uri:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        validation_report:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        is_valid:
+          parameterType: BOOLEAN
+        n_engines:
+          parameterType: NUMBER_INTEGER
+defaultPipelineRoot: gs://predictive-maintenance-artifacts/pipelines/
+deploymentSpec:
+  executors:
+    exec-deploy-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - deploy_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.1'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef deploy_model(\n    model_resource_name: str,\n    endpoint_display_name:\
+          \ str,\n    machine_type: str,\n    deployed_model_id: Output[Artifact],\n\
+          ) -> NamedTuple(\"Outputs\", [(\"endpoint_uri\", str)]):\n    from collections\
+          \ import namedtuple\n\n    from google.cloud import aiplatform\n\n    #\
+          \ Derive project and location from the model resource name\n    # format:\
+          \ projects/{project}/locations/{location}/models/{model_id}\n    parts =\
+          \ model_resource_name.split(\"/\")\n    project = parts[1]\n    location\
+          \ = parts[3]\n\n    aiplatform.init(project=project, location=location)\n\
+          \n    # Get or create endpoint\n    existing = aiplatform.Endpoint.list(\n\
+          \        filter=f'display_name=\"{endpoint_display_name}\"',\n        order_by=\"\
+          create_time desc\",\n    )\n    if existing:\n        endpoint = existing[0]\n\
+          \        print(f\"Reusing endpoint: {endpoint.resource_name}\")\n    else:\n\
+          \        endpoint = aiplatform.Endpoint.create(\n            display_name=endpoint_display_name,\n\
+          \            labels={\"project\": \"predictive-maintenance\", \"managed-by\"\
+          : \"kfp-pipeline\"},\n        )\n        print(f\"Created endpoint: {endpoint.resource_name}\"\
+          )\n\n    # Deploy model\n    model = aiplatform.Model(model_resource_name)\n\
+          \    model.deploy(\n        endpoint=endpoint,\n        machine_type=machine_type,\n\
+          \        min_replica_count=1,\n        max_replica_count=2,\n        traffic_percentage=100,\n\
+          \        sync=True,\n    )\n\n    endpoint_uri = (\n        f\"https://{location}-aiplatform.googleapis.com/v1/{endpoint.resource_name}\"\
+          \n    )\n    print(f\"Endpoint URI: {endpoint_uri}\")\n\n    deployed_model_id.uri\
+          \ = endpoint.resource_name\n    deployed_model_id.metadata[\"endpoint_uri\"\
+          ] = endpoint_uri\n    deployed_model_id.metadata[\"endpoint_resource_name\"\
+          ] = endpoint.resource_name\n\n    Outputs = namedtuple(\"Outputs\", [\"\
+          endpoint_uri\"])\n    return Outputs(endpoint_uri=endpoint_uri)\n\n"
+        image: python:3.10
+    exec-engineer-features:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - engineer_features
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-storage'\
+          \ 'numpy<2.0' 'pandas' 'scikit-learn' 'joblib'  &&  python3 -m pip install\
+          \ --quiet --no-warn-script-location 'kfp==2.16.1' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef engineer_features(\n    gcs_data_uri: str,\n    window_size:\
+          \ int,\n    rul_cap: int,\n    processed_data: Output[Dataset],\n) -> NamedTuple(\"\
+          Outputs\", [(\"n_train_samples\", int), (\"n_features\", int)]):\n    import\
+          \ io\n    import os\n    import tempfile\n    from collections import namedtuple\n\
+          \n    import joblib\n    import numpy as np\n    import pandas as pd\n \
+          \   from google.cloud import storage\n    from sklearn.preprocessing import\
+          \ MinMaxScaler\n\n    COLUMNS = [\"engine_id\", \"cycle\", \"op_setting_1\"\
+          , \"op_setting_2\", \"op_setting_3\"] + [\n        f\"sensor_{i}\" for i\
+          \ in range(1, 22)\n    ]\n    DROP_SENSORS = [\n        \"sensor_1\",\n\
+          \        \"sensor_5\",\n        \"sensor_10\",\n        \"sensor_16\",\n\
+          \        \"sensor_18\",\n        \"sensor_19\",\n    ]\n    SELECTED_SENSORS\
+          \ = [\n        f\"sensor_{i}\" for i in range(1, 22) if f\"sensor_{i}\"\
+          \ not in DROP_SENSORS\n    ]\n\n    def _download(gcs_uri: str, local_path:\
+          \ str) -> None:\n        uri = gcs_uri[5:]\n        bucket_name, _, blob_path\
+          \ = uri.partition(\"/\")\n        storage.Client().bucket(bucket_name).blob(blob_path).download_to_filename(\n\
+          \            local_path\n        )\n\n    def _upload_bytes(data: bytes,\
+          \ gcs_uri: str) -> None:\n        uri = gcs_uri[5:]\n        bucket_name,\
+          \ _, blob_path = uri.partition(\"/\")\n        storage.Client().bucket(bucket_name).blob(blob_path).upload_from_string(data)\n\
+          \n    with tempfile.TemporaryDirectory() as tmp:\n        local_train =\
+          \ os.path.join(tmp, \"train_FD001.txt\")\n        _download(f\"{gcs_data_uri}/train_FD001.txt\"\
+          , local_train)\n\n        df = pd.read_csv(\n            local_train, sep=r\"\
+          \\s+\", header=None, names=COLUMNS, engine=\"python\"\n        )[COLUMNS]\n\
+          \        df[\"engine_id\"] = df[\"engine_id\"].astype(int)\n        df[\"\
+          cycle\"] = df[\"cycle\"].astype(int)\n\n    # RUL labeling (piecewise linear,\
+          \ capped)\n    max_cycles = df.groupby(\"engine_id\")[\"cycle\"].transform(\"\
+          max\")\n    df[\"rul\"] = np.minimum(max_cycles - df[\"cycle\"], rul_cap).astype(float)\n\
+          \n    # Sensor selection\n    keep_cols = [\"engine_id\", \"cycle\", \"\
+          rul\"] + SELECTED_SENSORS\n    df = df[keep_cols].reset_index(drop=True)\n\
+          \n    # Train / val split by engine_id (80/20, no leakage)\n    engine_ids\
+          \ = sorted(df[\"engine_id\"].unique())\n    split_idx = int(len(engine_ids)\
+          \ * 0.8)\n    train_ids = set(engine_ids[:split_idx])\n    val_ids = set(engine_ids[split_idx:])\n\
+          \n    train_df = df[df[\"engine_id\"].isin(train_ids)].copy()\n    val_df\
+          \ = df[df[\"engine_id\"].isin(val_ids)].copy()\n\n    # Normalize: fit on\
+          \ train, transform both\n    scaler = MinMaxScaler()\n    train_df[SELECTED_SENSORS]\
+          \ = scaler.fit_transform(train_df[SELECTED_SENSORS])\n    val_df[SELECTED_SENSORS]\
+          \ = scaler.transform(val_df[SELECTED_SENSORS])\n\n    def _make_sequences(frame:\
+          \ pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:\n        seqs, targets\
+          \ = [], []\n        for _, grp in frame.groupby(\"engine_id\"):\n      \
+          \      sensors = grp[SELECTED_SENSORS].values\n            ruls = grp[\"\
+          rul\"].values\n            for i in range(len(sensors) - window_size + 1):\n\
+          \                seqs.append(sensors[i : i + window_size])\n           \
+          \     targets.append(ruls[i + window_size - 1])\n        return (\n    \
+          \        np.array(seqs, dtype=np.float32),\n            np.array(targets,\
+          \ dtype=np.float32),\n        )\n\n    X_train, y_train = _make_sequences(train_df)\n\
+          \    X_val, y_val = _make_sequences(val_df)\n    n_features = X_train.shape[2]\n\
+          \n    print(f\"X_train: {X_train.shape}  y_train: {y_train.shape}\")\n \
+          \   print(f\"X_val  : {X_val.shape}   y_val  : {y_val.shape}\")\n    print(f\"\
+          n_features={n_features}\")\n\n    base_uri = processed_data.uri\n    # Upload\
+          \ arrays as npy bytes\n    for name, arr in [\n        (\"X_train.npy\"\
+          , X_train),\n        (\"y_train.npy\", y_train),\n        (\"X_val.npy\"\
+          , X_val),\n        (\"y_val.npy\", y_val),\n    ]:\n        buf = io.BytesIO()\n\
+          \        np.save(buf, arr)\n        _upload_bytes(buf.getvalue(), f\"{base_uri}/{name}\"\
+          )\n        print(f\"  Uploaded {name}\")\n\n    # Scaler\n    with tempfile.NamedTemporaryFile(suffix=\"\
+          .joblib\", delete=False) as f:\n        scaler_path = f.name\n    joblib.dump(scaler,\
+          \ scaler_path)\n    with open(scaler_path, \"rb\") as f:\n        _upload_bytes(f.read(),\
+          \ f\"{base_uri}/scaler.joblib\")\n    os.unlink(scaler_path)\n    print(\"\
+          \  Uploaded scaler.joblib\")\n\n    processed_data.metadata[\"n_train_samples\"\
+          ] = str(len(X_train))\n    processed_data.metadata[\"n_features\"] = str(n_features)\n\
+          \n    Outputs = namedtuple(\"Outputs\", [\"n_train_samples\", \"n_features\"\
+          ])\n    return Outputs(n_train_samples=int(len(X_train)), n_features=int(n_features))\n\
+          \n"
+        image: python:3.10
+    exec-evaluate-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'torch' 'numpy<2.0'\
+          \ 'scikit-learn' 'joblib' 'pandas' 'google-cloud-storage'  &&  python3 -m\
+          \ pip install --quiet --no-warn-script-location 'kfp==2.16.1' '--no-deps'\
+          \ 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"$0\" \"$@\"\
+          \n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate_model(\n    model_artifact: Input[Model],\n    test_data_uri:\
+          \ str,\n    rmse_threshold: float,\n    evaluation_report: Output[Metrics],\n\
+          ) -> NamedTuple(\"Outputs\", [(\"test_rmse\", float), (\"passes_threshold\"\
+          , bool)]):\n    import math\n    import os\n    import tempfile\n    from\
+          \ collections import namedtuple\n\n    import joblib\n    import numpy as\
+          \ np\n    import pandas as pd\n    import torch\n    import torch.nn as\
+          \ nn\n    from google.cloud import storage\n\n    # Inline model definition\
+          \ (must match train_model)\n    class RULPredictor(nn.Module):\n       \
+          \ def __init__(self, n_features=15, hidden_size=128, num_layers=2, dropout=0.2):\n\
+          \            super().__init__()\n            self.lstm = nn.LSTM(\n    \
+          \            n_features,\n                hidden_size,\n               \
+          \ num_layers,\n                dropout=dropout if num_layers > 1 else 0.0,\n\
+          \                batch_first=True,\n            )\n            self.dropout\
+          \ = nn.Dropout(dropout)\n            self.fc1 = nn.Linear(hidden_size, 64)\n\
+          \            self.relu = nn.ReLU()\n            self.rul_head = nn.Linear(64,\
+          \ 1)\n            self.failure_head = nn.Linear(64, 1)\n            self.sigmoid\
+          \ = nn.Sigmoid()\n\n        def forward(self, x):\n            out, _ =\
+          \ self.lstm(x)\n            out = self.dropout(out[:, -1, :])\n        \
+          \    out = self.relu(self.fc1(out))\n            return {\n            \
+          \    \"rul\": self.rul_head(out),\n                \"failure_prob\": self.sigmoid(self.failure_head(out)),\n\
+          \            }\n\n    COLUMNS = [\"engine_id\", \"cycle\", \"op_setting_1\"\
+          , \"op_setting_2\", \"op_setting_3\"] + [\n        f\"sensor_{i}\" for i\
+          \ in range(1, 22)\n    ]\n    DROP_SENSORS = [\n        \"sensor_1\",\n\
+          \        \"sensor_5\",\n        \"sensor_10\",\n        \"sensor_16\",\n\
+          \        \"sensor_18\",\n        \"sensor_19\",\n    ]\n    SELECTED_SENSORS\
+          \ = [\n        f\"sensor_{i}\" for i in range(1, 22) if f\"sensor_{i}\"\
+          \ not in DROP_SENSORS\n    ]\n    WINDOW_SIZE = 30\n\n    def _download(gcs_uri:\
+          \ str, local_path: str) -> None:\n        uri = gcs_uri[5:]\n        bucket_name,\
+          \ _, blob_path = uri.partition(\"/\")\n        storage.Client().bucket(bucket_name).blob(blob_path).download_to_filename(\n\
+          \            local_path\n        )\n\n    def _download_bytes(gcs_uri: str)\
+          \ -> bytes:\n        uri = gcs_uri[5:]\n        bucket_name, _, blob_path\
+          \ = uri.partition(\"/\")\n        return storage.Client().bucket(bucket_name).blob(blob_path).download_as_bytes()\n\
+          \n    with tempfile.TemporaryDirectory() as tmp:\n        # Download model\
+          \ and scaler from artifact URI\n        art_uri = model_artifact.uri\n \
+          \       model_local = os.path.join(tmp, \"model.pt\")\n        scaler_local\
+          \ = os.path.join(tmp, \"scaler.joblib\")\n        _download(f\"{art_uri}/rul_predictor_v1.pt\"\
+          , model_local)\n        _download(f\"{art_uri}/scaler.joblib\", scaler_local)\n\
+          \n        # Download test data\n        test_local = os.path.join(tmp, \"\
+          test_FD001.txt\")\n        rul_local = os.path.join(tmp, \"RUL_FD001.txt\"\
+          )\n        _download(f\"{test_data_uri}/test_FD001.txt\", test_local)\n\
+          \        _download(f\"{test_data_uri}/RUL_FD001.txt\", rul_local)\n\n  \
+          \      scaler = joblib.load(scaler_local)\n\n        # Parse test data\n\
+          \        test_df = pd.read_csv(\n            test_local, sep=r\"\\s+\",\
+          \ header=None, names=COLUMNS, engine=\"python\"\n        )[COLUMNS]\n  \
+          \      test_df[\"engine_id\"] = test_df[\"engine_id\"].astype(int)\n   \
+          \     rul_series = pd.read_csv(rul_local, header=None, names=[\"rul\"])[\"\
+          rul\"].astype(\n            float\n        )\n\n        # Feature engineering\
+          \ (no RUL labeling for test)\n        keep_cols = [\"engine_id\", \"cycle\"\
+          ] + SELECTED_SENSORS\n        test_df = test_df[keep_cols].reset_index(drop=True)\n\
+          \        test_df[SELECTED_SENSORS] = scaler.transform(test_df[SELECTED_SENSORS])\n\
+          \n        # Create sequences (last window per engine)\n        X_test_list,\
+          \ y_test_list = [], []\n        for eng_id, grp in test_df.groupby(\"engine_id\"\
+          ):\n            sensors = grp[SELECTED_SENSORS].values\n            if len(sensors)\
+          \ < WINDOW_SIZE:\n                pad = np.zeros((WINDOW_SIZE - len(sensors),\
+          \ len(SELECTED_SENSORS)))\n                sensors = np.vstack([pad, sensors])\n\
+          \            X_test_list.append(sensors[-WINDOW_SIZE:])\n            y_test_list.append(float(rul_series.iloc[int(eng_id)\
+          \ - 1]))\n\n        X_test = np.array(X_test_list, dtype=np.float32)\n \
+          \       y_test = np.array(y_test_list, dtype=np.float32)\n\n        # Load\
+          \ model\n        n_features = X_test.shape[2]\n        model = RULPredictor(n_features=n_features)\n\
+          \        state = torch.load(model_local, map_location=\"cpu\", weights_only=True)\n\
+          \        model.load_state_dict(state)\n        model.eval()\n\n        #\
+          \ Inference\n        with torch.no_grad():\n            preds = model(torch.tensor(X_test))[\"\
+          rul\"].squeeze().numpy()\n\n        # Metrics\n        preds_clipped = np.clip(preds,\
+          \ 0, 125)\n        test_rmse = float(math.sqrt(np.mean((preds_clipped -\
+          \ y_test) ** 2)))\n        test_mae = float(np.mean(np.abs(preds_clipped\
+          \ - y_test)))\n        d = preds_clipped - y_test\n        nasa_score =\
+          \ float(\n            np.sum(np.where(d < 0, np.exp(-d / 13) - 1, np.exp(d\
+          \ / 10) - 1))\n        )\n        passes_threshold = test_rmse < rmse_threshold\n\
+          \n        print(f\"Test RMSE      : {test_rmse:.4f}\")\n        print(f\"\
+          Test MAE       : {test_mae:.4f}\")\n        print(f\"NASA score     : {nasa_score:.2f}\"\
+          )\n        print(f\"Passes ({rmse_threshold}): {passes_threshold}\")\n\n\
+          \    evaluation_report.log_metric(\"test_rmse\", test_rmse)\n    evaluation_report.log_metric(\"\
+          test_mae\", test_mae)\n    evaluation_report.log_metric(\"nasa_score\",\
+          \ nasa_score)\n    evaluation_report.log_metric(\"rmse_threshold\", rmse_threshold)\n\
+          \    evaluation_report.log_metric(\"passes_threshold\", int(passes_threshold))\n\
+          \n    Outputs = namedtuple(\"Outputs\", [\"test_rmse\", \"passes_threshold\"\
+          ])\n    return Outputs(\n        test_rmse=round(test_rmse, 4), passes_threshold=bool(passes_threshold)\n\
+          \    )\n\n"
+        image: python:3.10
+    exec-train-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-storage'\
+          \ 'numpy<2.0' 'scikit-learn' 'joblib'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.16.1' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_model(\n    processed_data: Input[Dataset],\n    gcs_model_uri:\
+          \ str,\n    epochs: int,\n    batch_size: int,\n    model_artifact: Output[Model],\n\
+          ) -> NamedTuple(\"Outputs\", [(\"val_rmse\", float), (\"nasa_score\", float)]):\n\
+          \    import io\n    import math\n    import os\n    import tempfile\n  \
+          \  from collections import namedtuple\n\n    import joblib\n    import numpy\
+          \ as np\n    import torch\n    import torch.nn as nn\n    from google.cloud\
+          \ import storage\n    from torch.utils.data import DataLoader, TensorDataset\n\
+          \n    # ------------------------------------------------------------------\n\
+          \    # Inline model definition (mirrors src/model/lstm.py)\n    # ------------------------------------------------------------------\n\
+          \    class RULPredictor(nn.Module):\n        def __init__(self, n_features=15,\
+          \ hidden_size=128, num_layers=2, dropout=0.2):\n            super().__init__()\n\
+          \            self.lstm = nn.LSTM(\n                n_features,\n       \
+          \         hidden_size,\n                num_layers,\n                dropout=dropout\
+          \ if num_layers > 1 else 0.0,\n                batch_first=True,\n     \
+          \       )\n            self.dropout = nn.Dropout(dropout)\n            self.fc1\
+          \ = nn.Linear(hidden_size, 64)\n            self.relu = nn.ReLU()\n    \
+          \        self.rul_head = nn.Linear(64, 1)\n            self.failure_head\
+          \ = nn.Linear(64, 1)\n            self.sigmoid = nn.Sigmoid()\n\n      \
+          \  def forward(self, x):\n            out, _ = self.lstm(x)\n          \
+          \  out = self.dropout(out[:, -1, :])\n            out = self.relu(self.fc1(out))\n\
+          \            return {\n                \"rul\": self.rul_head(out),\n  \
+          \              \"failure_prob\": self.sigmoid(self.failure_head(out)),\n\
+          \            }\n\n    # ------------------------------------------------------------------\n\
+          \    # GCS helpers\n    # ------------------------------------------------------------------\n\
+          \    def _download_bytes(gcs_uri: str) -> bytes:\n        uri = gcs_uri[5:]\n\
+          \        bucket_name, _, blob_path = uri.partition(\"/\")\n        return\
+          \ storage.Client().bucket(bucket_name).blob(blob_path).download_as_bytes()\n\
+          \n    def _upload_file(local_path: str, gcs_uri: str) -> None:\n       \
+          \ uri = gcs_uri[5:]\n        bucket_name, _, blob_path = uri.partition(\"\
+          /\")\n        storage.Client().bucket(bucket_name).blob(blob_path).upload_from_filename(\n\
+          \            local_path\n        )\n\n    def _upload_bytes(data: bytes,\
+          \ gcs_uri: str) -> None:\n        uri = gcs_uri[5:]\n        bucket_name,\
+          \ _, blob_path = uri.partition(\"/\")\n        storage.Client().bucket(bucket_name).blob(blob_path).upload_from_string(data)\n\
+          \n    # ------------------------------------------------------------------\n\
+          \    # Load processed data from artifact URI\n    # ------------------------------------------------------------------\n\
+          \    base_uri = processed_data.uri\n    print(f\"Loading data from {base_uri}\"\
+          )\n\n    def _load_npy(name: str) -> np.ndarray:\n        raw = _download_bytes(f\"\
+          {base_uri}/{name}\")\n        return np.load(io.BytesIO(raw))\n\n    X_train\
+          \ = _load_npy(\"X_train.npy\")\n    y_train = _load_npy(\"y_train.npy\"\
+          )\n    X_val = _load_npy(\"X_val.npy\")\n    y_val = _load_npy(\"y_val.npy\"\
+          )\n    print(f\"X_train {X_train.shape}  X_val {X_val.shape}\")\n\n    with\
+          \ tempfile.NamedTemporaryFile(suffix=\".joblib\", delete=False) as f:\n\
+          \        scaler_local = f.name\n    with open(scaler_local, \"wb\") as f:\n\
+          \        f.write(_download_bytes(f\"{base_uri}/scaler.joblib\"))\n    scaler\
+          \ = joblib.load(scaler_local)\n    os.unlink(scaler_local)\n\n    # ------------------------------------------------------------------\n\
+          \    # Training setup\n    # ------------------------------------------------------------------\n\
+          \    device = torch.device(\"cuda\" if torch.cuda.is_available() else \"\
+          cpu\")\n    print(f\"Training on: {device}\")\n\n    n_features = X_train.shape[2]\n\
+          \    model = RULPredictor(n_features=n_features).to(device)\n\n    train_ds\
+          \ = TensorDataset(\n        torch.tensor(X_train, dtype=torch.float32),\n\
+          \        torch.tensor(y_train, dtype=torch.float32),\n    )\n    val_ds\
+          \ = TensorDataset(\n        torch.tensor(X_val, dtype=torch.float32),\n\
+          \        torch.tensor(y_val, dtype=torch.float32),\n    )\n    train_loader\
+          \ = DataLoader(\n        train_ds, batch_size=batch_size, shuffle=True,\
+          \ drop_last=False\n    )\n    val_loader = DataLoader(val_ds, batch_size=batch_size,\
+          \ shuffle=False)\n\n    optimizer = torch.optim.Adam(model.parameters(),\
+          \ lr=1e-3, weight_decay=1e-5)\n    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(\n\
+          \        optimizer, patience=5, factor=0.5\n    )\n    mse_loss = nn.MSELoss()\n\
+          \    bce_loss = nn.BCELoss()\n    FAILURE_HORIZON = 30\n\n    best_val_rmse\
+          \ = float(\"inf\")\n    patience_counter = 0\n    EARLY_STOP = 15\n\n  \
+          \  with tempfile.TemporaryDirectory() as tmp:\n        best_ckpt = os.path.join(tmp,\
+          \ \"best_model.pt\")\n\n        for epoch in range(1, epochs + 1):\n   \
+          \         # \u2014 Train \u2014\n            model.train()\n           \
+          \ train_loss = 0.0\n            for Xb, yb in train_loader:\n          \
+          \      Xb, yb = Xb.to(device), yb.to(device)\n                optimizer.zero_grad()\n\
+          \                out = model(Xb)\n                rul_loss = mse_loss(out[\"\
+          rul\"].squeeze(), yb)\n                failure_label = (yb <= FAILURE_HORIZON).float()\n\
+          \                cls_loss = bce_loss(out[\"failure_prob\"].squeeze(), failure_label)\n\
+          \                loss = rul_loss + 0.3 * cls_loss\n                loss.backward()\n\
+          \                nn.utils.clip_grad_norm_(model.parameters(), 1.0)\n   \
+          \             optimizer.step()\n                train_loss += loss.item()\
+          \ * len(Xb)\n            train_loss /= len(train_ds)\n\n            # \u2014\
+          \ Validate \u2014\n            model.eval()\n            preds, actuals\
+          \ = [], []\n            with torch.no_grad():\n                for Xb, yb\
+          \ in val_loader:\n                    Xb = Xb.to(device)\n             \
+          \       out = model(Xb)\n                    preds.extend(out[\"rul\"].squeeze().cpu().tolist())\n\
+          \                    actuals.extend(yb.tolist())\n\n            preds_arr\
+          \ = np.array(preds)\n            actuals_arr = np.array(actuals)\n     \
+          \       val_rmse = math.sqrt(np.mean((preds_arr - actuals_arr) ** 2))\n\
+          \            scheduler.step(val_rmse)\n\n            if epoch % 10 == 0\
+          \ or epoch == 1:\n                print(\n                    f\"Epoch {epoch:3d}/{epochs}\
+          \  train_loss={train_loss:.4f}  val_rmse={val_rmse:.4f}\"\n            \
+          \    )\n\n            if val_rmse < best_val_rmse:\n                best_val_rmse\
+          \ = val_rmse\n                torch.save(model.state_dict(), best_ckpt)\n\
+          \                patience_counter = 0\n            else:\n             \
+          \   patience_counter += 1\n                if patience_counter >= EARLY_STOP:\n\
+          \                    print(f\"Early stopping at epoch {epoch}\")\n     \
+          \               break\n\n        # Reload best weights for NASA score\n\
+          \        model.load_state_dict(\n            torch.load(best_ckpt, map_location=device,\
+          \ weights_only=True)\n        )\n        model.eval()\n        preds_best,\
+          \ actuals_best = [], []\n        with torch.no_grad():\n            for\
+          \ Xb, yb in val_loader:\n                out = model(Xb.to(device))\n  \
+          \              preds_best.extend(out[\"rul\"].squeeze().cpu().tolist())\n\
+          \                actuals_best.extend(yb.tolist())\n\n        p = np.array(preds_best)\n\
+          \        a = np.array(actuals_best)\n        d = p - a\n        nasa_score\
+          \ = float(\n            np.sum(np.where(d < 0, np.exp(-d / 13) - 1, np.exp(d\
+          \ / 10) - 1))\n        )\n\n        print(f\"\\nBest val RMSE : {best_val_rmse:.4f}\"\
+          )\n        print(f\"NASA score    : {nasa_score:.2f}\")\n\n        # Upload\
+          \ model to artifact URI\n        art_uri = model_artifact.uri\n        _upload_file(best_ckpt,\
+          \ f\"{art_uri}/rul_predictor_v1.pt\")\n\n        # Upload scaler to artifact\
+          \ URI (needed by evaluate_model)\n        scaler_upload_path = os.path.join(tmp,\
+          \ \"scaler.joblib\")\n        joblib.dump(scaler, scaler_upload_path)\n\
+          \        _upload_file(scaler_upload_path, f\"{art_uri}/scaler.joblib\")\n\
+          \n        # Also overwrite the primary GCS model location (used by TorchServe)\n\
+          \        _upload_file(best_ckpt, f\"{gcs_model_uri}/rul_predictor_v1.pt\"\
+          )\n        print(f\"Saved model \u2192 gs artifact + {gcs_model_uri}/rul_predictor_v1.pt\"\
+          )\n\n    model_artifact.metadata[\"val_rmse\"] = str(round(best_val_rmse,\
+          \ 4))\n    model_artifact.metadata[\"nasa_score\"] = str(round(nasa_score,\
+          \ 2))\n\n    Outputs = namedtuple(\"Outputs\", [\"val_rmse\", \"nasa_score\"\
+          ])\n    return Outputs(val_rmse=round(best_val_rmse, 4), nasa_score=round(nasa_score,\
+          \ 2))\n\n"
+        image: pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
+        resources:
+          memoryLimit: 8.0
+          resourceMemoryLimit: 8G
+    exec-validate-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - validate_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-storage'\
+          \ 'numpy<2.0' 'pandas'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.16.1' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef validate_data(\n    gcs_data_uri: str,\n    validation_report:\
+          \ Output[Metrics],\n) -> NamedTuple(\"Outputs\", [(\"is_valid\", bool),\
+          \ (\"n_engines\", int)]):\n    import json\n    import os\n    import tempfile\n\
+          \    from collections import namedtuple\n\n    import pandas as pd\n   \
+          \ from google.cloud import storage as gcs\n\n    COLUMNS = [\"engine_id\"\
+          , \"cycle\", \"op_setting_1\", \"op_setting_2\", \"op_setting_3\"] + [\n\
+          \        f\"sensor_{i}\" for i in range(1, 22)\n    ]\n    EXPECTED_SENSORS\
+          \ = [f\"sensor_{i}\" for i in range(1, 22)]\n\n    def _download(src: str,\
+          \ dst: str) -> None:\n        without_scheme = src[5:]\n        bucket_name,\
+          \ _, blob_path = without_scheme.partition(\"/\")\n        gcs.Client().bucket(bucket_name).blob(blob_path).download_to_filename(dst)\n\
+          \n    with tempfile.TemporaryDirectory() as tmp:\n        local_train =\
+          \ os.path.join(tmp, \"train_FD001.txt\")\n        print(f\"Downloading {gcs_data_uri}/train_FD001.txt\"\
+          )\n        _download(f\"{gcs_data_uri}/train_FD001.txt\", local_train)\n\
+          \n        df = pd.read_csv(\n            local_train,\n            sep=r\"\
+          \\s+\",\n            header=None,\n            names=COLUMNS,\n        \
+          \    engine=\"python\",\n        )[COLUMNS]\n        df[\"engine_id\"] =\
+          \ df[\"engine_id\"].astype(int)\n        df[\"cycle\"] = df[\"cycle\"].astype(int)\n\
+          \n    no_nulls = bool(df.isnull().sum().sum() == 0)\n    sensors_ok = all(s\
+          \ in df.columns for s in EXPECTED_SENSORS)\n    n_engines = int(df[\"engine_id\"\
+          ].nunique())\n    engine_count_ok = n_engines > 50\n    is_valid = no_nulls\
+          \ and sensors_ok and engine_count_ok\n\n    print(\n        json.dumps(\n\
+          \            {\n                \"is_valid\": is_valid,\n              \
+          \  \"n_engines\": n_engines,\n                \"no_nulls\": no_nulls,\n\
+          \                \"sensors_ok\": sensors_ok,\n                \"rows\":\
+          \ len(df),\n            },\n            indent=2,\n        )\n    )\n\n\
+          \    validation_report.log_metric(\"is_valid\", int(is_valid))\n    validation_report.log_metric(\"\
+          n_engines\", n_engines)\n    validation_report.log_metric(\"no_nulls\",\
+          \ int(no_nulls))\n    validation_report.log_metric(\"rows\", len(df))\n\n\
+          \    Outputs = namedtuple(\"Outputs\", [\"is_valid\", \"n_engines\"])\n\
+          \    return Outputs(is_valid=is_valid, n_engines=n_engines)\n\n"
+        image: python:3.10
+pipelineInfo:
+  description: "Predictive maintenance RUL pipeline \u2014 NASA CMAPSS FD001"
+  name: rul-predictor-pipeline
+root:
+  dag:
+    tasks:
+      condition-1:
+        componentRef:
+          name: comp-condition-1
+        dependentTasks:
+        - validate-data
+        inputs:
+          parameters:
+            pipelinechannel--batch_size:
+              componentInputParameter: batch_size
+            pipelinechannel--endpoint_display_name:
+              componentInputParameter: endpoint_display_name
+            pipelinechannel--epochs:
+              componentInputParameter: epochs
+            pipelinechannel--gcs_model_uri:
+              componentInputParameter: gcs_model_uri
+            pipelinechannel--gcs_raw_data_uri:
+              componentInputParameter: gcs_raw_data_uri
+            pipelinechannel--machine_type:
+              componentInputParameter: machine_type
+            pipelinechannel--rmse_threshold:
+              componentInputParameter: rmse_threshold
+            pipelinechannel--rul_cap:
+              componentInputParameter: rul_cap
+            pipelinechannel--validate-data-is_valid:
+              taskOutputParameter:
+                outputParameterKey: is_valid
+                producerTask: validate-data
+            pipelinechannel--vertex_model_resource_name:
+              componentInputParameter: vertex_model_resource_name
+            pipelinechannel--window_size:
+              componentInputParameter: window_size
+        taskInfo:
+          name: data-valid
+        triggerPolicy:
+          condition: inputs.parameter_values['pipelinechannel--validate-data-is_valid']
+            == true
+      validate-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-validate-data
+        inputs:
+          parameters:
+            gcs_data_uri:
+              componentInputParameter: gcs_raw_data_uri
+        taskInfo:
+          name: Validate Data
+  inputDefinitions:
+    parameters:
+      batch_size:
+        defaultValue: 256.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      endpoint_display_name:
+        defaultValue: rul-predictor-endpoint
+        isOptional: true
+        parameterType: STRING
+      epochs:
+        defaultValue: 100.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      gcs_model_uri:
+        defaultValue: gs://predictive-maintenance-artifacts/models/v1
+        isOptional: true
+        parameterType: STRING
+      gcs_raw_data_uri:
+        defaultValue: gs://predictive-maintenance-artifacts/data/raw
+        isOptional: true
+        parameterType: STRING
+      machine_type:
+        defaultValue: n1-standard-2
+        isOptional: true
+        parameterType: STRING
+      rmse_threshold:
+        defaultValue: 18.0
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      rul_cap:
+        defaultValue: 125.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      vertex_model_resource_name:
+        defaultValue: projects/groovy-rope-496901-d2/locations/us-central1/models/6890578348376850432
+        isOptional: true
+        parameterType: STRING
+      window_size:
+        defaultValue: 30.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.16.1
